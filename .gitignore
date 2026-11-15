@@ -1,0 +1,19 @@
+# 构建产物与本地源码（不提交）
+openwrt/
+sources/
+artifacts/
+*.log
+*.orig
+*.rej
+*.bin
+*.itb
+*.manifest
+*.img
+*.gz
+# 系统文件
+.DS_Store
+Thumbs.db
+# 编辑器
+.vscode/
+*.swp
+*~

@@ -1,0 +1,74 @@
+#!/bin/sh
+# 99-ll-defaults —— OpenWrt-JDCloud 首次开机默认设置
+# 本脚本在固件首次启动时执行一次，执行后自动删除；保留配置升级时不重复执行。
+#
+# 默认值（和 README / SOURCES.md 一致）：
+#   LAN 192.168.10.1 / 主机名 ll / root 密码 root / Argon 主题 / 中文 / 时区 Asia/Shanghai
+#   WiFi（仅雅典娜）：SSID ll / ll-5G / ll-5G-2，WPA2-PSK，密码 12345678，首次使用后请修改。
+#   太乙没有无线网卡，WiFi 一段自动跳过。
+#
+# 安全说明：
+# - 构建期（IPKG_INSTROOT 已设置）直接退出 1，让脚本随固件下发、首次开机才跑；
+#   否则构建期的 sed 会误改构建机的 /etc/shadow。这是 OpenWrt uci-defaults 的标准做法。
+# - root 密码不在仓库里写明文：__ROOT_PASSWORD_HASH__ 由构建期的
+#   scripts/diy-part2.sh 用 openssl passwd -1 root 现场生成并替换。
+
+[ -n "$IPKG_INSTROOT" ] && exit 1
+
+# 主机名与时区
+uci set system.@system[0].hostname='ll'
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci commit system
+
+# LAN 地址（和 config_generate 里改的保持一致）
+uci set network.lan.ipaddr='192.168.10.1'
+uci set network.lan.netmask='255.255.255.0'
+uci commit network
+
+# LuCI：中文 + Argon 主题
+uci set luci.main.lang='zh_cn'
+uci set luci.main.mediaurlbase='/luci-static/argon'
+uci commit luci
+
+# NTP：用国内可达的服务器
+uci -q delete system.ntp.server
+uci add_list system.ntp.server='ntp.aliyun.com'
+uci add_list system.ntp.server='ntp1.aliyun.com'
+uci add_list system.ntp.server='time1.cloud.tencent.com'
+uci commit system
+
+# root 密码：只在当前还是空密码 / 锁定状态时才写，避免覆盖用户已改过的密码
+ROOT_HASH='__ROOT_PASSWORD_HASH__'
+if [ -n "$ROOT_HASH" ] && [ "$ROOT_HASH" != '__ROOT_PASSWORD_HASH__' ]; then
+    if grep -q '^root::' /etc/shadow || grep -q '^root:!:' /etc/shadow || grep -q '^root:\*:' /etc/shadow; then
+        sed -i "s|^root:[^:]*:|root:${ROOT_HASH}:|" /etc/shadow
+    fi
+fi
+
+# WiFi：按 radio 出现顺序对应 2.4G / 5G-1 / 5G-2（雅典娜三频）。
+# 没有无线网卡（太乙）时 uci show wireless 为空，整段跳过。
+# 信道/带宽参考 ones20250/Openwrt-AX6600 的推荐值：2.4G 信道 11/20MHz，
+# 5G-1 信道 44/160MHz（起不来或断流就降到 80MHz），5G-2 信道 149/80MHz。
+i=0
+for radio in $(uci show wireless 2>/dev/null | sed -n 's/^wireless\.\(radio[0-9]*\)=.*/\1/p' | sort -u); do
+    case "$i" in
+        0) ssid='ll';     channel='11';  htmode='HT20'  ;;
+        1) ssid='ll-5G';  channel='44';  htmode='HE160' ;;
+        2) ssid='ll-5G-2'; channel='149'; htmode='HE80' ;;
+        *) ssid="ll-$i";  channel='auto'; htmode='auto' ;;
+    esac
+    uci set "wireless.$radio.disabled='0'"
+    uci set "wireless.$radio.country='US'"
+    uci set "wireless.$radio.channel='$channel'"
+    uci set "wireless.$radio.htmode='$htmode'"
+    uci set "wireless.$radio.txpower='24'"
+    uci set "wireless.default_radio${i}.ssid='$ssid'"
+    uci set "wireless.default_radio${i}.encryption='psk2'"
+    uci set "wireless.default_radio${i}.key='12345678'"
+    uci set "wireless.default_radio${i}.disabled='0'"
+    i=$((i + 1))
+done
+uci commit wireless
+
+exit 0

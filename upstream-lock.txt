@@ -1,0 +1,27 @@
+# 上游锁定记录（upstream-lock.txt）
+#
+# 本文件是模板：每次 Release 里附带的 upstream-lock.txt 由 workflow 在构建时
+# 现场生成，写进本次实际用的源码提交号与追加 feed 列表。
+# 下面是 2026-11-15 核对过的分支（内核版本见 SOURCES.md），供人工核对用。
+#
+# 源码（构建时 git clone --depth=1 --single-branch）：
+#   immortalwrt  https://github.com/laipeng668/immortalwrt.git  分支 openwrt-25.12
+#   libwrt       https://github.com/LiBwrt/openwrt-6.x.git        分支 25.12-nss
+#   openwrt      https://github.com/openwrt/openwrt.git         分支 main（25.12 分支无 jdcloud 机型）
+#   ppe          https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git  分支 ppe-nss（实验）
+#   ppe-immwrt   https://github.com/VIKINGYFY/immortalwrt.git   分支 owrt（实验）
+#
+# 追加的插件 feed（scripts/diy-part1.sh）：
+#   src-git openclash    https://github.com/vernesong/OpenClash.git
+#   src-git passwall2    https://github.com/Openwrt-Passwall/openwrt-passwall2.git
+#   src-git pw_packages  https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git
+#   src-git istore       https://github.com/linkease/istore.git   （仅 ImmortalWrt 系：immortalwrt / libwrt / ppe-immwrt）
+#   src-git nss          https://github.com/JuliusBairaktaris/nss-packages.git;ppe-nss  （仅 ppe，取 nss-firmware）
+#
+# 直接 clone 的包（scripts/diy-part2.sh，feeds update 之后）：
+#   luci-theme-argon         https://github.com/jerrykuku/luci-theme-argon.git        master
+#   luci-app-argon-config    https://github.com/jerrykuku/luci-app-argon-config.git   master
+#   luci-app-athena-led      https://github.com/NONGFAH/luci-app-athena-led.git       main（失败则试 master）
+#
+# 注意：不要把本文件里的分支当成“版本锁定”。内核与上游提交每次构建都可能变，
+# 以 Release 里那份构建时生成的 upstream-lock.txt 为准。

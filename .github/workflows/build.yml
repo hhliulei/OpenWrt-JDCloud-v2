@@ -1,0 +1,359 @@
+# OpenWrt-JDCloud-v2：20 个固件云编译
+#   5 源码（ImmortalWrt / LiBwrt openwrt-6.x / 官方 OpenWrt / PPE+NSS / PPE ImmortalWrt 版）
+# × 2 机型（雅典娜 RE-CS-02 / 太乙 RE-CS-07）
+# × 2 版本（纯净版 pure / 插件版 plus）
+#
+# 触发：手动（可单选源码/机型/版本）、push 改配置或脚本、每天定时。
+# 每个 job 编一个固件，产物（factory + sysupgrade + manifest + Config + sha256）
+# 直接发 Release，tag 形如 ppe-jdcloud_re-cs-02-pure-26.11.16-1830。
+#
+# 注意：ppe / ppe-immwrt 两条 PPE 路线属实验性质（PPE 在 IPQ60xx 上未经源码
+# 作者实测，作者实测机为小米 AX3600 / IPQ807x），先编出来验证再说，见 SOURCES.md。
+#
+# 关键约定（和 README / SOURCES.md 一致）：
+# - 内核不写死版本：用各源码分支的默认内核。
+# - 软件源不裁剪：./scripts/feeds update -a / install -a 拉取全部 feed，
+#   固件自带的软件仓库保持完整，刷完以后任何插件都能自己装。
+# - 默认值：LAN 192.168.10.1，主机名 ll，root/root，Argon 主题，中文。
+
+name: 构建 OpenWrt-JDCloud-v2 固件
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: 源码
+        required: true
+        type: choice
+        default: all
+        options: [all, immortalwrt, libwrt, openwrt, ppe, ppe-immwrt]
+      device:
+        description: 机型
+        required: true
+        type: choice
+        default: all
+        options: [all, jdcloud_re-cs-02, jdcloud_re-cs-07]
+      flavour:
+        description: 版本
+        required: true
+        type: choice
+        default: all
+        options: [all, pure, plus]
+  push:
+    branches: [main, master]
+    paths:
+      - 'configs/**'
+      - 'scripts/**'
+      - 'files/**'
+      - '.github/workflows/build.yml'
+      - 'build.sh'
+  schedule:
+    # 每天 02:00 UTC 定时编一次，自动跟上游最新源码。
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  # v2 仓库用独立的并发组，与 v1 仓库（build-main）互不干扰。
+  group: build-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # 先做静态检查：配置齐不齐、脚本语法对不对，过了才开始编（省 runner 时间）。
+  validate:
+    name: 静态检查
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 检查 YAML / Shell / 配置完整性
+        run: |
+          python3 -c "import yaml; yaml.safe_load(open('.github/workflows/build.yml'))"
+          for f in scripts/*.sh build.sh files/etc/uci-defaults/*; do bash -n "$f"; done
+          python3 scripts/gen-configs.py
+          git diff --exit-code configs/ || { echo 'configs/ 与 scripts/gen-configs.py 生成结果不一致，请先跑一遍生成器再提交'; exit 1; }
+          for source in immortalwrt libwrt openwrt ppe ppe-immwrt; do
+            for device in jdcloud_re-cs-02 jdcloud_re-cs-07; do
+              for flavour in pure plus; do
+                cfg="configs/${source}-${device}-${flavour}.config"
+                [ -f "$cfg" ] || { echo "缺配置文件：$cfg"; exit 1; }
+                grep -q '^CONFIG_TARGET_qualcommax=y$' "$cfg" || { echo "$cfg 缺 target 行"; exit 1; }
+                grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_${device}=y" "$cfg" \
+                  || { echo "$cfg 缺机型行：$device"; exit 1; }
+                case "$device" in
+                  jdcloud_re-cs-07)
+                    grep -q 'CONFIG_PACKAGE_kmod-ath11k-pci is not set' "$cfg" \
+                      || { echo "$cfg：太乙必须关掉 WiFi（NoWiFi）"; exit 1; } ;;
+                esac
+              done
+            done
+          done
+          echo '静态检查通过：20 个配置齐全，机型/WiFi 开关正确'
+
+  build:
+    name: ${{ matrix.source }} / ${{ matrix.device }} / ${{ matrix.flavour }}
+    needs: validate
+    # 手动触发时按输入过滤；push / 定时触发时 20 个全编。
+    # 注意：job 级 if 里不能引用 matrix，过滤改在下面的 filter 步骤做，
+    # 后面的步骤都用 if: steps.filter.outputs.run == 'true' 来跳过不匹配的组合。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - { source: immortalwrt, device: jdcloud_re-cs-02, flavour: pure }
+          - { source: immortalwrt, device: jdcloud_re-cs-02, flavour: plus }
+          - { source: immortalwrt, device: jdcloud_re-cs-07, flavour: pure }
+          - { source: immortalwrt, device: jdcloud_re-cs-07, flavour: plus }
+          - { source: libwrt, device: jdcloud_re-cs-02, flavour: pure }
+          - { source: libwrt, device: jdcloud_re-cs-02, flavour: plus }
+          - { source: libwrt, device: jdcloud_re-cs-07, flavour: pure }
+          - { source: libwrt, device: jdcloud_re-cs-07, flavour: plus }
+          - { source: openwrt, device: jdcloud_re-cs-02, flavour: pure }
+          - { source: openwrt, device: jdcloud_re-cs-02, flavour: plus }
+          - { source: openwrt, device: jdcloud_re-cs-07, flavour: pure }
+          - { source: openwrt, device: jdcloud_re-cs-07, flavour: plus }
+          - { source: ppe, device: jdcloud_re-cs-02, flavour: pure }
+          - { source: ppe, device: jdcloud_re-cs-02, flavour: plus }
+          - { source: ppe, device: jdcloud_re-cs-07, flavour: pure }
+          - { source: ppe, device: jdcloud_re-cs-07, flavour: plus }
+          - { source: ppe-immwrt, device: jdcloud_re-cs-02, flavour: pure }
+          - { source: ppe-immwrt, device: jdcloud_re-cs-02, flavour: plus }
+          - { source: ppe-immwrt, device: jdcloud_re-cs-07, flavour: pure }
+          - { source: ppe-immwrt, device: jdcloud_re-cs-07, flavour: plus }
+    env:
+      TZ: Asia/Shanghai
+      SOURCE: ${{ matrix.source }}
+      DEVICE: ${{ matrix.device }}
+      FLAVOUR: ${{ matrix.flavour }}
+      OPENWRT_DIR: openwrt
+    steps:
+      - name: 检查手动触发的过滤条件
+        id: filter
+        env:
+          INPUT_SOURCE: ${{ inputs.source }}
+          INPUT_DEVICE: ${{ inputs.device }}
+          INPUT_FLAVOUR: ${{ inputs.flavour }}
+        run: |
+          RUN=true
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            [ "$INPUT_SOURCE" = "all" ] || [ "$INPUT_SOURCE" = "$SOURCE" ] || RUN=false
+            [ "$INPUT_DEVICE" = "all" ] || [ "$INPUT_DEVICE" = "$DEVICE" ] || RUN=false
+            [ "$INPUT_FLAVOUR" = "all" ] || [ "$INPUT_FLAVOUR" = "$FLAVOUR" ] || RUN=false
+          fi
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "这个组合是否需要编译：$RUN（$SOURCE / $DEVICE / $FLAVOUR）"
+
+      - name: Checkout
+        if: steps.filter.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: 安装编译依赖
+        if: steps.filter.outputs.run == 'true'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get -yqq update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential bzip2 ca-certificates ccache clang cmake cpio curl \
+            device-tree-compiler dos2unix file flex g++-multilib gawk gcc-multilib \
+            genisoimage gettext git jq libbpf-dev libclang-dev libdw-dev libelf-dev \
+            libncurses-dev libssl-dev lld llvm ninja-build patch perl pkgconf python3 \
+            python3-cryptography python3-dev python3-packaging python3-pyelftools \
+            python3-setuptools qemu-utils rsync swig unzip wget xz-utils zlib1g-dev zstd
+          sudo apt-get -yqq clean
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          df -h .
+
+      - name: 腾出磁盘空间（OpenWrt 全编很占地方）
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/hostedtoolcache /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          sudo apt-get -yqq autoremove --purge 2>/dev/null || true
+          df -h .
+
+      - name: 确定源码地址与构建变量
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          case "$SOURCE" in
+            immortalwrt) REPO_URL="https://github.com/laipeng668/immortalwrt.git"; REPO_BRANCH="openwrt-25.12" ;;
+            libwrt)      REPO_URL="https://github.com/LiBwrt/openwrt-6.x.git";    REPO_BRANCH="25.12-nss" ;;
+            openwrt)     REPO_URL="https://github.com/openwrt/openwrt.git";       REPO_BRANCH="main" ;;  # 25.12 分支无 jdcloud 机型，见 SOURCES.md
+            ppe)         REPO_URL="https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git"; REPO_BRANCH="ppe-nss" ;;  # 实验：PPE+NSS，IPQ60xx 未经作者实测
+            ppe-immwrt)  REPO_URL="https://github.com/VIKINGYFY/immortalwrt.git"; REPO_BRANCH="owrt" ;;  # 实验：ImmortalWrt 底 PPE，IPQ60xx 未经实测
+          esac
+          {
+            echo "REPO_URL=$REPO_URL"
+            echo "REPO_BRANCH=$REPO_BRANCH"
+            echo "BUILD_DATE=$(TZ=UTC-8 date +%y.%m.%d-%H.%M)"
+            echo "TAG=${SOURCE}-${DEVICE}-${FLAVOUR}-$(TZ=UTC-8 date +%y.%m.%d-%H.%M)"
+            echo "CONFIG_FILE=configs/${SOURCE}-${DEVICE}-${FLAVOUR}.config"
+          } >> "$GITHUB_ENV"
+          echo "源码：$REPO_URL（$REPO_BRANCH）"
+
+      - name: 还原下载缓存
+        if: steps.filter.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: dl-${{ matrix.source }}-${{ hashFiles('configs/**', 'scripts/**') }}
+          restore-keys: dl-${{ matrix.source }}-
+
+      - name: 克隆源码
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          git clone --depth=1 --single-branch --branch "$REPO_BRANCH" "$REPO_URL" "$OPENWRT_DIR"
+          cd "$OPENWRT_DIR" && echo "SOURCE_HASH=$(git log -1 --pretty=format:'%H')" >> "$GITHUB_ENV"
+
+      - name: diy-part1（追加插件 feed，不裁剪默认 feed）
+        if: steps.filter.outputs.run == 'true'
+        run: bash scripts/diy-part1.sh "$SOURCE" "$DEVICE" "$FLAVOUR"
+
+      - name: 复制 .config
+        if: steps.filter.outputs.run == 'true'
+        run: cp "$CONFIG_FILE" "$OPENWRT_DIR/.config"
+
+      - name: 更新 feeds（全部）
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          cd "$OPENWRT_DIR"
+          ./scripts/feeds update -a
+
+      - name: diy-part2（Argon / athena-led / 默认值 / 密码哈希）
+        if: steps.filter.outputs.run == 'true'
+        run: bash scripts/diy-part2.sh "$SOURCE" "$DEVICE" "$FLAVOUR"
+
+      - name: 安装 feeds（全部）
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          cd "$OPENWRT_DIR"
+          ./scripts/feeds install -a
+
+      - name: defconfig + 机型校验
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          cd "$OPENWRT_DIR"
+          make defconfig
+          grep -q "CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_${DEVICE}=y" .config \
+            || { echo "错误：defconfig 后 .config 里没有机型 $DEVICE"; echo "可能原因：机型符号不对（须用 CONFIG_TARGET_qualcommax_ipq60xx_DEVICE_<机型>=y 的 choice 符号）或该分支上游没有此机型，见 SOURCES.md"; exit 1; }
+          echo "机型校验通过：$DEVICE"
+
+      - name: 下载源码包
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          cd "$OPENWRT_DIR"
+          make download -j"$(nproc)"
+
+      - name: 编译固件
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          cd "$OPENWRT_DIR"
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: 收集产物与发布说明
+        if: steps.filter.outputs.run == 'true'
+        run: |
+          KVER="$(grep -m1 '^KERNEL_PATCHVER:=' "$OPENWRT_DIR/target/linux/qualcommax/Makefile" | cut -d= -f2 | tr -d ' ')"
+          [ "$SOURCE" = immortalwrt ] && KVER="${KVER}（测试内核，CONFIG_TESTING_KERNEL）"
+          mkdir -p artifacts
+          cp "$OPENWRT_DIR"/bin/targets/qualcommax/ipq60xx/*"${DEVICE}"* artifacts/ || { echo '错误：bin 目录下找不到该机型的固件'; ls "$OPENWRT_DIR/bin/targets/qualcommax/ipq60xx/"; exit 1; }
+          cp "$OPENWRT_DIR"/bin/targets/qualcommax/ipq60xx/*.manifest artifacts/ 2>/dev/null || true
+          cp "$OPENWRT_DIR/.config" "artifacts/Config-${TAG}.txt"
+          grep '^CONFIG_PACKAGE.*=y' "$OPENWRT_DIR/.config" | sed 's/^CONFIG_PACKAGE_//; s/=y$//' | sort > "artifacts/Packages-${TAG}.txt"
+          {
+            echo "源码：$REPO_URL（分支 $REPO_BRANCH，提交 $SOURCE_HASH）"
+            echo "机型：$DEVICE"
+            echo "版本：$FLAVOUR"
+            echo "内核：$KVER（构建时读取，不写死版本）"
+            echo "源码包 feed：见 artifacts/upstream-lock.txt"
+          } > artifacts/upstream-lock.txt
+          cat >> artifacts/upstream-lock.txt <<'EOF'
+          # 追加的插件 feed（scripts/diy-part1.sh 写入 feeds.conf.default）：
+          EOF
+          grep -E '^src-git (openclash|passwall2|pw_packages|istore|nss)' "$OPENWRT_DIR/feeds.conf.default" >> artifacts/upstream-lock.txt || true
+          {
+            echo "📦 OpenWrt-JDCloud-v2 自动编译固件"
+            echo ""
+            echo "源码：$SOURCE（$REPO_URL，分支 $REPO_BRANCH）"
+            if [ "$SOURCE" = ppe ] || [ "$SOURCE" = ppe-immwrt ]; then
+              echo "⚠️ 实验路线：PPE 在 IPQ60xx 上未经源码作者实测（作者实测机为小米 AX3600 / IPQ807x），请先实测再日常使用"
+            fi
+            echo "机型：$DEVICE"
+            if [ "$FLAVOUR" = pure ]; then
+              echo "版本：PURE 纯净版，轻量稳定，仅含基础网络与常用管理插件，扩展插件按需自行安装"
+            else
+              echo "版本：PLUS 插件版，在纯净版基础上预装 OpenClash、PassWall2、Docker / Dockerman、AdGuard Home、DDNS、ttyd、UPnP 等主流插件，刷完即用"
+            fi
+            echo "内核：$KVER"
+            echo "编译时间：$BUILD_DATE（UTC+8）"
+            echo ""
+            echo "🔑 默认登录信息"
+            echo "管理地址：192.168.10.1"
+            echo "主机名：ll"
+            echo "用户名：root"
+            echo "密码：root"
+            if [ "$DEVICE" = jdcloud_re-cs-02 ]; then
+              echo "WiFi 名称：ll / ll-5G / ll-5G-2"
+              echo "WiFi 密码：12345678"
+            fi
+            echo ""
+            echo "📥 下载与刷机说明"
+            echo "- 首次从原厂固件刷入：选文件名带 factory 的文件"
+            echo "- 已是 OpenWrt / ImmortalWrt 要升级：选文件名带 sysupgrade 的文件"
+            echo "- Config-*.txt：本次编译的完整 .config 配置，便于复现或二次定制"
+            echo "- Packages-*.txt：本次编译选中的软件包清单"
+            echo "- sha256sums.txt：固件校验文件，刷机前先校验下载完整性"
+            echo "- 完整刷机教程见仓库 docs/FLASHING.md"
+            echo ""
+            echo "⚠️ 风险提示"
+            echo "刷机存在风险，请确认：已备份原厂固件；能进入 U-Boot 或 TTL 恢复；了解分区结构。"
+            echo "太乙 RE-CS-07 是有线路由，无 WiFi；雅典娜 RE-CS-02 有三频 WiFi 与顶部点阵屏。"
+          } > artifacts/release-body.md
+          (cd artifacts && sha256sum -- * > sha256sums.txt)
+          ls -la artifacts/
+
+      - name: 上传产物（备用下载）
+        if: steps.filter.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ env.TAG }}
+          path: artifacts/
+          retention-days: 7
+
+      - name: 发布 Release
+        if: steps.filter.outputs.run == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          body_path: artifacts/release-body.md
+          files: |
+            artifacts/*.bin
+            artifacts/*.manifest
+            artifacts/Config-*.txt
+            artifacts/Packages-*.txt
+            artifacts/sha256sums.txt
+            artifacts/upstream-lock.txt
+          draft: false
+          prerelease: false
+
+      - name: 清理旧 Release（每个固件只保留最新 2 个版本）
+        if: steps.filter.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: ${{ matrix.source }}-${{ matrix.device }}-${{ matrix.flavour }}-
+        run: |
+          # 只清理本组合（同源码/机型/版本前缀）的旧 Release，保留最新 2 个，
+          # 其余组合不受影响。刚发布的这一个也算在内。
+          echo "清理前缀 $PREFIX 的旧 Release，保留最新 2 个"
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq "[.[] | select(.tagName | startswith(env.PREFIX))] | sort_by(.createdAt) | reverse | .[2:] | .[].tagName" \
+            | while read -r tag; do
+              [ -n "$tag" ] || continue
+              echo "删除旧 Release：$tag"
+              gh release delete "$tag" --yes --cleanup-tag || true
+            done
+          echo "清理完成"

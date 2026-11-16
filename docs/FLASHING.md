@@ -56,7 +56,9 @@ LiBwrt 的 Release 里有 `factory.bin` 时，第 4-5 步可以简化为直接�
   换源码（比如 ImmortalWrt 换到 LiBwrt）或换机型时，建议不保留配置，
   刷完重新设置。
 - 升级前先确认 Release 的 tag：源码、机型、纯净版 / 插件版要和当前一致，
-  tag 形如 `immortalwrt-jdcloud_re-cs-02-pure-26.11.15-1830`。
+  tag 形如 `jdcloud_re-cs-02-immortalwrt-openwrt-25.12-pure-26.11.16-10.00.00`
+  （机型-源码-分支-版本-编译时间；2026-11-16 之前的是旧格式
+  `immortalwrt-jdcloud_re-cs-02-pure-26.11.15-1830`）。
 
 ## 救砖
 

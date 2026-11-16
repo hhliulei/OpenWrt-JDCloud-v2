@@ -39,8 +39,9 @@
 所以 LiBwrt 的构建会额外产出 `factory.bin`。注意：官方 `openwrt-25.12` 分支里没有这两个机型，
 所以官方源码用 `main` 分支（见上表）。PPE 路线也已核对：JuliusBairaktaris 的 `ppe-nss` 分支
 `ipq60xx.mk` 里 `jdcloud_re-cs-02`（第 201 行）、`jdcloud_re-cs-07`（第 224 行）都在，
-定义与官方 main 一致；VIKINGYFY 的 `owrt` 分支是否包含这两个机型，首次构建时需核对
-（ZqinKing 的 jdcloud immwrt 用的是 VIKINGYFY 的 `main` 分支，不是 `owrt`）。
+定义与官方 main 一致；VIKINGYFY 的 `owrt` 分支在 2026-11-16 的首次构建（run #1）里也已证实
+两个机型都在——`ppe-immwrt` 的两个太乙固件构建成功，雅典娜固件只死在固件包冲突上，
+与机型定义无关（ZqinKing 的 jdcloud immwrt 用的是 VIKINGYFY 的 `main` 分支，不是 `owrt`）。
 
 ## 追加的插件 feed（scripts/diy-part1.sh）
 
@@ -49,7 +50,7 @@
 | `openclash` | `vernesong/OpenClash.git` | OpenClash |
 | `passwall2` | `Openwrt-Passwall/openwrt-passwall2.git` | PassWall2 |
 | `pw_packages` | `Openwrt-Passwall/openwrt-passwall-packages.git` | PassWall2 依赖包 |
-| `istore` | `linkease/istore.git` | iStore 应用商店（只加 ImmortalWrt 系：immortalwrt / libwrt / ppe-immwrt，官方 OpenWrt 与 ppe 不加） |
+| `istore` | `linkease/istore.git` | iStore 应用商店（只加 ImmortalWrt 系：immortalwrt / libwrt / ppe-immwrt，官方 OpenWrt 与 ppe 不加；注意：加 feed 不等于预装，见下面第 5 条） |
 | `nss` | `JuliusBairaktaris/nss-packages.git;ppe-nss` | NSS 固件（只加 ppe 源码；该 feed 里只取 `nss-firmware` 一个包，kmod-nss-wifi-drv 需要它） |
 
 另外两个不在 feed 里的包由 diy-part2.sh 直接 clone：
@@ -85,9 +86,12 @@ workflow 里跑的是 `./scripts/feeds update -a` / `./scripts/feeds install -a`
 4. **athena-led 默认分支**：diy-part2.sh 先按 `main` 拉，失败再按 `master` 拉；
    如果 NONGFAH 的仓库改了默认分支名，两次都会失败，构建会在这一步报错，
    按报错信息改分支名即可。
-5. **iStore 与官方 OpenWrt / PPE**：`luci-app-store` 只在 ImmortalWrt 系
-   （immortalwrt / libwrt / ppe-immwrt）的 plus 版里生效；官方 OpenWrt 与 ppe
-   的 plus 版没有 istore feed，配置里直接不写这一行。
+5. **iStore 与官方 OpenWrt / PPE**：`luci-app-store=y` 只在 ImmortalWrt / LiBwrt
+   的 plus 配置里，**只有这两条路线的插件版固件预装 iStore**。`ppe-immwrt` 虽然
+   也加了 istore feed（`scripts/diy-part1.sh` 里 `immortalwrt|libwrt|ppe-immwrt` 都加），
+   但生成器没有给它写 `luci-app-store` 这一行，固件里不含 iStore，刷完以后可以自己从
+   istore feed 安装；官方 OpenWrt 与 `ppe` 既无 istore feed，配置里也不写这一行。
+   （之前文档里“ImmortalWrt 系都含 iStore”的说法不准确，已按实际情况改过来了。）
 6. **Docker 与雅典娜 1GB 内存**：雅典娜出厂只有 1GB 内存，跑 Docker 很吃紧，
    建议优先在太乙（2GB）上用 Docker，或给雅典娜扩内存后再用。
 7. **factory.bin**：LiBwrt 的 Device 定义带 `EmmcImage`，会产出 `factory.bin`；
@@ -99,8 +103,9 @@ workflow 里跑的是 `./scripts/feeds update -a` / `./scripts/feeds install -a`
    也未点名在京东云上测过。8 个 PPE 配置编出来后，必须先实测（有线速率、WiFi、
    PPE 是否生效）再决定是否采用，Release 说明里已标“实验路线”。
 9. **VIKINGYFY 分支出入**：ZqinKing 的 jdcloud immwrt 用的是 VIKINGYFY 的 `main` 分支，
-   而本仓库 `ppe-immwrt` 用的是 README 点名的 PPE 分支 `owrt`。首次构建时需核对
-   `owrt` 分支是否包含 jdcloud 机型与 PPE 代码；若缺机型，改回 `main` 分支或换源码。
+   而本仓库 `ppe-immwrt` 用的是 README 点名的 PPE 分支 `owrt`。2026-11-16 的首次构建
+   （run #1）已证实 `owrt` 分支包含 jdcloud 两个机型与 PPE 代码（太乙固件构建成功），
+   分支选择没问题，不用改回 `main`。
 10. **qca-ppe-qos 依赖 feed 补丁**：PPE 插件版里的 `qca-ppe-qos` 依赖该 fork 的
     feed 补丁（seed 注释：PPE QoS 需要“sqm-scripts from the builder's feed patch”）。
     若首次构建在这一行丢包或报错，先看 `Config-*.txt`，再决定是否去掉这一行。

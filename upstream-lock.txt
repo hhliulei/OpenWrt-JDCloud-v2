@@ -1,21 +1,23 @@
 # 上游锁定记录（upstream-lock.txt）
 #
-# 本文件是模板：每次 Release 里附带的 upstream-lock.txt 由 workflow 在构建时
-# 现场生成，写进本次实际用的源码提交号与追加 feed 列表。
-# 下面是 2026-11-15 核对过的分支（内核版本见 SOURCES.md），供人工核对用。
+# 由每天 02:00 UTC（北京时间 10:00）的定时构建自动更新：
+# 记录该次定时构建实际用的各源提交号（git clone --depth=1 拉到的分支最新提交）。
+# 提交信息带 [skip ci]，且本文件不在 push 触发的 paths 里，不会触发新的构建。
+# 内核版本以各 Release 里附的 Config-*.txt / upstream-lock.txt 为准。
+# 最后同步：2026-11-16 人工核对（git ls-remote），定时构建同步后会被构建实际用的提交号覆盖。
 #
-# 源码（构建时 git clone --depth=1 --single-branch）：
-#   immortalwrt  https://github.com/laipeng668/immortalwrt.git  分支 openwrt-25.12
-#   libwrt       https://github.com/LiBwrt/openwrt-6.x.git        分支 25.12-nss
-#   openwrt      https://github.com/openwrt/openwrt.git         分支 main（25.12 分支无 jdcloud 机型）
-#   ppe          https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git  分支 ppe-nss（实验）
-#   ppe-immwrt   https://github.com/VIKINGYFY/immortalwrt.git   分支 owrt（实验）
+# 源码 / 分支 / 构建用提交：
+#   immortalwrt https://github.com/laipeng668/immortalwrt.git openwrt-25.12 b5fd0c8b686f0e2522203c17f6424dc848c59824
+#   libwrt https://github.com/LiBwrt/openwrt-6.x.git 25.12-nss 6c363ced06ee6dc0c49092a8da087e1dc45f17c9
+#   openwrt https://github.com/openwrt/openwrt.git main e9ba4b935dae70a27960edb86e1cf9ade35bc31a
+#   ppe https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git ppe-nss ec9306fa8ddc7538e340389f959cc64f4dd4266b
+#   ppe-immwrt https://github.com/VIKINGYFY/immortalwrt.git owrt ebd9072b3362a5f8aa5eb54b531304f2a1f16d03
 #
 # 追加的插件 feed（scripts/diy-part1.sh）：
 #   src-git openclash    https://github.com/vernesong/OpenClash.git
 #   src-git passwall2    https://github.com/Openwrt-Passwall/openwrt-passwall2.git
 #   src-git pw_packages  https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git
-#   src-git istore       https://github.com/linkease/istore.git   （仅 ImmortalWrt 系：immortalwrt / libwrt / ppe-immwrt）
+#   src-git istore       https://github.com/linkease/istore.git   （immortalwrt / libwrt / ppe-immwrt；但 luci-app-store 只在 immortalwrt / libwrt 的 plus 配置里选中）
 #   src-git nss          https://github.com/JuliusBairaktaris/nss-packages.git;ppe-nss  （仅 ppe，取 nss-firmware）
 #
 # 直接 clone 的包（scripts/diy-part2.sh，feeds update 之后）：
@@ -23,5 +25,6 @@
 #   luci-app-argon-config    https://github.com/jerrykuku/luci-app-argon-config.git   master
 #   luci-app-athena-led      https://github.com/NONGFAH/luci-app-athena-led.git       main（失败则试 master）
 #
-# 注意：不要把本文件里的分支当成“版本锁定”。内核与上游提交每次构建都可能变，
-# 以 Release 里那份构建时生成的 upstream-lock.txt 为准。
+# 注意：不要把本文件里的提交号当成“版本锁定”。内核与上游提交每次构建都可能变，
+# 以最近一次定时构建同步后的这份文件、以及各 Release 里构建时生成的
+# upstream-lock.txt 为准。

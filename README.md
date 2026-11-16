@@ -24,13 +24,13 @@ OpenWrt / ImmortalWrt / JDCloud RE-CS-02 / JDCloud RE-CS-07 / IPQ6010 / PPE / �
 ## ⭐ 项目特点
 
 - 🔥 **云编译构建** — 基于 GitHub Actions 完全自动化编译，五个源码、两个机型、纯净版与插件版，一共 20 个固件
-- 📦 **双机型支持** — 雅典娜 RE-CS-02（三频 WiFi 6 + 顶部点阵屏）与太乙 RE-CS-07（有线路由）同仓构建，固件不混用
-- 🐧 **最新内核** — 各源码用其分支默认内核（ImmortalWrt 测试内核当前 6.18、LiBwrt 6.12、官方 main 当前 6.18、PPE 路线 6.18），不写死版本号
+- 📦 **双机型支持** — 雅典娜 RE-CS-02（三频 WiFi 6 + 顶部点阵屏）与太乙 RE-CS-07（有线路由）
+- 🐧 **最新内核** — 各源码用其分支默认内核（ImmortalWrt 测试内核当前 6.18、LiBwrt 6.12、官方 main 当前 6.18、PPE 路线 6.18）
 - ⚡ **硬件加速** — LiBwrt NSS 11.4（含雅典娜 WiFi offload）、ImmortalWrt NSS 12.5，官方 OpenWrt 走原生 flow offload；PPE 路线另有 Qualcomm PPE 开源硬件加速 + NSS WiFi（实验）
 - 💡 **点阵屏控制** — 内置雅典娜 LED 点阵屏管理界面（athena-led）
 - 🚀 **开箱即用** — 默认 LAN 192.168.10.1、主机名 ll、登录 root / root、Argon 主题、中文界面；插件版预装 OpenClash / PassWall2 / Docker / AdGuard Home / MosDNS / Aria2 等
 - 🧩 **软件源完整** — 构建时不裁剪任何 feed，纯净版刷完也能在 LuCI「软件包」里按需装任意插件
-- 🔄 **源码同步** — 每天 02:00 UTC（北京时间 10:00）自动拉取上游最新代码构建，每个固件只保留最新 2 个 Release；定时构建成功后，仓库根目录的 `upstream-lock.txt` 会自动更新为本次构建实际用的各源提交号
+- 🔄 **源码同步** — 每天 02:00 UTC（北京时间 10:00）自动拉取上游最新代码构建
 
 ---
 
@@ -70,12 +70,7 @@ OpenWrt / ImmortalWrt / JDCloud RE-CS-02 / JDCloud RE-CS-07 / IPQ6010 / PPE / �
 ### 文件命名与附件说明
 
 **每个版本单独放一个 Release**：20 个固件（5 源码 × 2 机型 × 纯净/插件）各有
-自己独立的 Release，不打包成一个大包；找固件时按 tag 前缀搜机型、源码或版本
-即可，不用翻大包（参考 VIKINGYFY/OpenWRT-CI 的 Tags 做法）。
-
-Release 的 tag 形如 `jdcloud_re-cs-02-immortalwrt-openwrt-25.12-pure-26.11.16-10.00.00`，
-即 `<机型>-<源码>-<分支>-<版本>-<编译时间>`：机型在前，接着是源码、分支、
-纯净版 / 插件版，最后是编译时间（精确到秒）。例如：
+自己独立的 Release；找固件时按 tag 前缀搜机型、源码或版本即可
 
 | tag | 对应固件 |
 |-----|----------|

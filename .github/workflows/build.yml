@@ -4,8 +4,15 @@
 # × 2 版本（纯净版 pure / 插件版 plus）
 #
 # 触发：手动（可单选源码/机型/版本）、push 改配置或脚本、每天定时。
+# 每天定时构建成功后，sync-lock 任务把各源实际构建用的提交号写回
+# upstream-lock.txt 并提交回仓库（提交信息带 [skip ci]；该文件不在
+# push 触发的 paths 里，不会死循环）。workflow 已声明 permissions:
+# contents: write，所以默认 GITHUB_TOKEN 就能 push，不需要另配 PAT。
 # 每个 job 编一个固件，产物（factory + sysupgrade + manifest + Config + sha256）
-# 直接发 Release，tag 形如 ppe-jdcloud_re-cs-02-pure-26.11.16-1830。
+# 直接发 Release，每个固件单独一个 Release，tag 形如
+# jdcloud_re-cs-02-immortalwrt-openwrt-25.12-pure-26.11.16-10.00.00，
+# 即 <机型>-<源码>-<分支>-<版本>-<编译时间>（机型在前，参考 VIKINGYFY/OpenWRT-CI
+# 的 Tags 做法：每个版本单独放，找固件不用翻大包）。
 #
 # 注意：ppe / ppe-immwrt 两条 PPE 路线属实验性质（PPE 在 IPQ60xx 上未经源码
 # 作者实测，作者实测机为小米 AX3600 / IPQ807x），先编出来验证再说，见 SOURCES.md。
@@ -189,7 +196,7 @@ jobs:
             echo "REPO_URL=$REPO_URL"
             echo "REPO_BRANCH=$REPO_BRANCH"
             echo "BUILD_DATE=$(TZ=UTC-8 date +%y.%m.%d-%H.%M)"
-            echo "TAG=${SOURCE}-${DEVICE}-${FLAVOUR}-$(TZ=UTC-8 date +%y.%m.%d-%H.%M)"
+            echo "TAG=${DEVICE}-${SOURCE}-${REPO_BRANCH}-${FLAVOUR}-$(TZ=UTC-8 date +%y.%m.%d-%H.%M.%S)"
             echo "CONFIG_FILE=configs/${SOURCE}-${DEVICE}-${FLAVOUR}.config"
           } >> "$GITHUB_ENV"
           echo "源码：$REPO_URL（$REPO_BRANCH）"
@@ -205,8 +212,25 @@ jobs:
       - name: 克隆源码
         if: steps.filter.outputs.run == 'true'
         run: |
+          # 缓存还原会先建出 openwrt/dl（同源码的兄弟 job 先跑完并保存了 dl 缓存时），
+          # 目录 openwrt 已存在会导致 git clone 报 "destination path 'openwrt' already exists"。
+          # 先把还原的 dl 移走、删掉空目录，克隆完再放回 openwrt/dl，缓存照常用。
+          if [ -d "$OPENWRT_DIR/dl" ]; then mv "$OPENWRT_DIR/dl" dl-cache-restored; fi
+          rm -rf "$OPENWRT_DIR"
           git clone --depth=1 --single-branch --branch "$REPO_BRANCH" "$REPO_URL" "$OPENWRT_DIR"
-          cd "$OPENWRT_DIR" && echo "SOURCE_HASH=$(git log -1 --pretty=format:'%H')" >> "$GITHUB_ENV"
+          if [ -d dl-cache-restored ]; then mkdir -p "$OPENWRT_DIR/dl"; cp -a dl-cache-restored/. "$OPENWRT_DIR/dl/"; rm -rf dl-cache-restored; fi
+          SOURCE_HASH="$(cd "$OPENWRT_DIR" && git log -1 --pretty=format:'%H')"
+          echo "SOURCE_HASH=$SOURCE_HASH" >> "$GITHUB_ENV"
+          # 供定时同步任务汇总：记录本次构建实际用的上游提交号。
+          echo "$SOURCE $REPO_URL $REPO_BRANCH $SOURCE_HASH" > "source-hash-${SOURCE}-${DEVICE}-${FLAVOUR}.txt"
+
+      - name: 上传源码提交号（供定时同步任务汇总）
+        if: steps.filter.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-hash-${{ matrix.source }}-${{ matrix.device }}-${{ matrix.flavour }}
+          path: source-hash-*.txt
+          retention-days: 1
 
       - name: diy-part1（追加插件 feed，不裁剪默认 feed）
         if: steps.filter.outputs.run == 'true'
@@ -263,6 +287,11 @@ jobs:
           cp "$OPENWRT_DIR"/bin/targets/qualcommax/ipq60xx/*.manifest artifacts/ 2>/dev/null || true
           cp "$OPENWRT_DIR/.config" "artifacts/Config-${TAG}.txt"
           grep '^CONFIG_PACKAGE.*=y' "$OPENWRT_DIR/.config" | sed 's/^CONFIG_PACKAGE_//; s/=y$//' | sort > "artifacts/Packages-${TAG}.txt"
+          # Release 说明末尾「插件信息」一节用的清单：从构建后的 .config 提取，
+          # 反映本次构建实际编入的包（defconfig 丢掉的行不会出现）。
+          LUCI_APPS="$(grep '^luci-app-' "artifacts/Packages-${TAG}.txt" | sort -u | tr '\n' ' ' || true)"
+          OTHER_PKGS="$(grep -E '^(docker|dockerd|docker-compose|adguardhome|smartdns|mosdns|aria2|openlist2|easytier|lucky|frpc|frps|nginx-full|vlmcsd|qca-ppe-qos|sqm-scripts|sqm-scripts-nss|wpad-[a-z-]*|ath11k-firmware-[a-z0-9-]*|kmod-qca-[a-z0-9-]*|kmod-nss-[a-z0-9-]*|zram-swap|ddns-scripts|ddns-scripts-cloudflare|dnsmasq-full)$' "artifacts/Packages-${TAG}.txt" | sort -u | tr '\n' ' ' || true)"
+          FEED_LINES="$(grep -E '^src-git (openclash|passwall2|pw_packages|istore|nss)' "$OPENWRT_DIR/feeds.conf.default" || true)"
           {
             echo "源码：$REPO_URL（分支 $REPO_BRANCH，提交 $SOURCE_HASH）"
             echo "机型：$DEVICE"
@@ -277,20 +306,56 @@ jobs:
           {
             echo "📦 OpenWrt-JDCloud-v2 自动编译固件"
             echo ""
-            echo "源码：$SOURCE（$REPO_URL，分支 $REPO_BRANCH）"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "📌 基本信息"
+            echo ""
+            if [ "$FLAVOUR" = pure ]; then
+              echo "固件版本：PURE 纯净版"
+              echo "版本说明：纯净版，轻量稳定，仅含基础网络与常用管理插件，扩展插件按需自行安装"
+            else
+              echo "固件版本：PLUS 插件版"
+              echo "版本说明：插件版，在纯净版基础上预装 OpenClash、PassWall2、Docker / Dockerman、AdGuard Home、SmartDNS、MosDNS、DDNS、ttyd、UPnP 等主流插件，刷完即用"
+            fi
+            echo "源码：$SOURCE（$REPO_URL，分支 $REPO_BRANCH，提交 $SOURCE_HASH）"
             if [ "$SOURCE" = ppe ] || [ "$SOURCE" = ppe-immwrt ]; then
               echo "⚠️ 实验路线：PPE 在 IPQ60xx 上未经源码作者实测（作者实测机为小米 AX3600 / IPQ807x），请先实测再日常使用"
             fi
             echo "机型：$DEVICE"
-            if [ "$FLAVOUR" = pure ]; then
-              echo "版本：PURE 纯净版，轻量稳定，仅含基础网络与常用管理插件，扩展插件按需自行安装"
-            else
-              echo "版本：PLUS 插件版，在纯净版基础上预装 OpenClash、PassWall2、Docker / Dockerman、AdGuard Home、DDNS、ttyd、UPnP 等主流插件，刷完即用"
-            fi
-            echo "内核：$KVER"
             echo "编译时间：$BUILD_DATE（UTC+8）"
             echo ""
-            echo "🔑 默认登录信息"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "📌 外部插件来源"
+            echo ""
+            if [ -n "$FEED_LINES" ]; then echo "$FEED_LINES"; else echo "无（纯净版不集成外部插件）"; fi
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "🧩 设备与平台"
+            echo ""
+            echo "设备型号：$DEVICE"
+            echo "硬件平台：qualcommax/ipq60xx"
+            echo "CPU架构：Qualcomm IPQ6010"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "⚙️ 固件特性"
+            echo ""
+            case "$SOURCE" in
+              immortalwrt) echo "- ImmortalWrt 测试内核（CONFIG_TESTING_KERNEL，当前 6.18）+ NSS 12.5" ;;
+              libwrt) echo "- LiBwrt NSS 11.4，内核 6.12；雅典娜 WiFi offload 开启" ;;
+              openwrt) echo "- 官方 OpenWrt main 分支，无 NSS，走原生 ath11k + flow offload" ;;
+              ppe) echo "- PPE（qca_ppe / qca_edma 硬件流表）+ NSS WiFi（nss-wifi-drv + ath11k），内核 6.18；实验路线，IPQ60xx 未经作者实测" ;;
+              ppe-immwrt) echo "- ImmortalWrt 底 PPE（满血）+ NSS WiFi；实验路线，IPQ60xx 未经作者实测" ;;
+            esac
+            echo "- 每天 02:00 UTC 自动跟进上游构建；每个固件只保留最新 2 个 Release"
+            echo "- 软件源完整，刷完可在 LuCI「软件包」里按需安装任意插件"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "🔐 默认登录信息"
+            echo ""
             echo "管理地址：192.168.10.1"
             echo "主机名：ll"
             echo "用户名：root"
@@ -300,17 +365,51 @@ jobs:
               echo "WiFi 密码：12345678"
             fi
             echo ""
+            if [ "$DEVICE" = jdcloud_re-cs-02 ]; then
+              echo "━━━━━━━━━━━━━━━━━━━━━━━"
+              echo ""
+              echo "📶 WiFi 推荐设置（雅典娜三频）"
+              echo ""
+              echo "- 2.4G（2×2）：信道 11，带宽 20MHz"
+              echo "- 5G-1 游戏频段（4×4）：信道 44，带宽 160MHz（无法开启或断流则回退 80MHz）"
+              echo "- 5G-2 影音频段（2×2）：信道 149，带宽 80MHz"
+              echo "- 通用：地区 US，发射功率 24 dBm，加密 WPA2-PSK（CCMP 算法）"
+              echo ""
+            fi
+            echo "━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
             echo "📥 下载与刷机说明"
-            echo "- 首次从原厂固件刷入：选文件名带 factory 的文件"
+            echo ""
+            echo "- 首次从原厂固件刷入：选文件名带 factory 的文件（只有 LiBwrt 的 Release 有 factory；其余走 initramfs + sysupgrade，见 docs/FLASHING.md）"
             echo "- 已是 OpenWrt / ImmortalWrt 要升级：选文件名带 sysupgrade 的文件"
             echo "- Config-*.txt：本次编译的完整 .config 配置，便于复现或二次定制"
             echo "- Packages-*.txt：本次编译选中的软件包清单"
-            echo "- sha256sums.txt：固件校验文件，刷机前先校验下载完整性"
+            echo "- sha256sums.txt：固件校验文件，刷机前请先校验下载完整性"
             echo "- 完整刷机教程见仓库 docs/FLASHING.md"
             echo ""
             echo "⚠️ 风险提示"
-            echo "刷机存在风险，请确认：已备份原厂固件；能进入 U-Boot 或 TTL 恢复；了解分区结构。"
-            echo "太乙 RE-CS-07 是有线路由，无 WiFi；雅典娜 RE-CS-02 有三频 WiFi 与顶部点阵屏。"
+            echo ""
+            echo "刷机存在风险，请确认："
+            echo "- 已备份原厂固件与 ART 分区（p15，含 MAC / 序列号 / WiFi 校准数据）"
+            echo "- 能进入 U-Boot 或 TTL 恢复"
+            echo "- 了解分区结构，SBL1 绝对别动"
+            echo "- 不要拿 sysupgrade 当 factory 用；RE-CS-02 与 RE-CS-07 固件不能混刷"
+            echo "- 太乙 RE-CS-07 是有线路由，无 WiFi；雅典娜 RE-CS-02 有三频 WiFi 与顶部点阵屏"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "💡 插件信息"
+            echo ""
+            echo "内置 LuCI 插件："
+            echo "${LUCI_APPS:-（无，见 Packages-*.txt）}"
+            echo ""
+            echo "其他主要组件："
+            echo "${OTHER_PKGS:-（无，见 Packages-*.txt）}"
+            echo ""
+            echo "内核版本："
+            echo "$KVER"
+            echo ""
+            echo "（完整软件包清单见 Packages-*.txt；完整配置见 Config-*.txt）"
           } > artifacts/release-body.md
           (cd artifacts && sha256sum -- * > sha256sums.txt)
           ls -la artifacts/
@@ -344,16 +443,94 @@ jobs:
         if: steps.filter.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PREFIX: ${{ matrix.source }}-${{ matrix.device }}-${{ matrix.flavour }}-
+          # 旧格式（2026-11-16 改格式之前）：<源码>-<机型>-<版本>-<时间>
+          OLD_PREFIX: ${{ matrix.source }}-${{ matrix.device }}-${{ matrix.flavour }}-
+          # 新格式：<机型>-<源码>-<分支>-<版本>-<时间>（分支来自前面步骤写入的 REPO_BRANCH）
+          NEW_PREFIX: ${{ matrix.device }}-${{ matrix.source }}-${{ env.REPO_BRANCH }}-${{ matrix.flavour }}-
         run: |
-          # 只清理本组合（同源码/机型/版本前缀）的旧 Release，保留最新 2 个，
-          # 其余组合不受影响。刚发布的这一个也算在内。
-          echo "清理前缀 $PREFIX 的旧 Release，保留最新 2 个"
+          # 只清理本组合（同源码/机型/版本）的旧 Release，新旧两种 tag 格式
+          # 按创建时间一起排，只保留最新 2 个，其余删除；其余组合不受影响。
+          # 刚发布的这一个也算在内。旧格式的 Release 不会误删，也不会漏删：
+          # 它们和新格式的一起参与“最新 2 个”的计数，迟早会被新版本顶掉。
+          echo "清理本组合的旧 Release（新旧两种 tag 格式一起算），保留最新 2 个"
           gh release list --limit 200 --json tagName,createdAt \
-            --jq "[.[] | select(.tagName | startswith(env.PREFIX))] | sort_by(.createdAt) | reverse | .[2:] | .[].tagName" \
+            --jq "[.[] | select(.tagName | (startswith(env.OLD_PREFIX) or startswith(env.NEW_PREFIX)))] | sort_by(.createdAt) | reverse | .[2:] | .[].tagName" \
             | while read -r tag; do
               [ -n "$tag" ] || continue
               echo "删除旧 Release：$tag"
               gh release delete "$tag" --yes --cleanup-tag || true
             done
           echo "清理完成"
+
+  # 定时构建成功后，把各源实际构建用的提交号写回 upstream-lock.txt 并提交回仓库。
+  # 只在 schedule 触发时跑（手动 / push 触发不写回，避免构建中的提交互相打架）。
+  # 防死循环有两层：提交信息带 [skip ci]；upstream-lock.txt 不在上面 push 触发的
+  # paths 列表里，只改它本身不会触发新的构建。
+  # 权限：workflow 顶层已声明 permissions: contents: write，默认 GITHUB_TOKEN
+  # 就能 push 回本仓库，不需要另配 PAT；若 push 报 403，先看仓库 Settings →
+  # Actions → General → Workflow permissions，以及 main 分支是否有分支保护规则。
+  sync-lock:
+    name: 同步上游锁定记录
+    needs: build
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 下载各构建任务的源码提交号
+        uses: actions/download-artifact@v4
+        with:
+          pattern: source-hash-*
+          path: source-hashes
+          merge-multiple: true
+
+      - name: 写回 upstream-lock.txt 并提交
+        run: |
+          # 每个源取第一次出现的提交号（同一天 4 个任务克隆的是同一分支，正常应一致；
+          # 万一不一致，下面会把多余的也列出来，人工核对）。
+          LOCK_DATE="$(TZ=UTC-8 date +%y.%m.%d-%H.%M)"
+          {
+            echo "# 上游锁定记录（upstream-lock.txt）"
+            echo "#"
+            echo "# 由每天 02:00 UTC（北京时间 10:00）的定时构建自动更新："
+            echo "# 记录该次定时构建实际用的各源提交号（git clone --depth=1 拉到的分支最新提交）。"
+            echo "# 提交信息带 [skip ci]，且本文件不在 push 触发的 paths 里，不会触发新的构建。"
+            echo "# 内核版本以各 Release 里附的 Config-*.txt / upstream-lock.txt 为准。"
+            echo "# 最后同步：$LOCK_DATE（UTC+8），对应定时构建 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "#"
+            echo "# 源码 / 分支 / 构建用提交："
+            for src in immortalwrt libwrt openwrt ppe ppe-immwrt; do
+              line="$(grep -h "^$src " source-hashes/source-hash-*.txt | sort -u | head -n 1)"
+              [ -n "$line" ] || { echo "错误：没收到 $src 的提交号"; ls source-hashes/; exit 1; }
+              echo "#   $line"
+              extra="$(grep -h "^$src " source-hashes/source-hash-*.txt | sort -u | tail -n +2)"
+              [ -n "$extra" ] && echo "#   注意：$src 本次构建中出现多个不同提交（上游在构建期间更新了）：$extra"
+            done
+            echo "#"
+            echo "# 追加的插件 feed（scripts/diy-part1.sh）："
+            echo "#   src-git openclash    https://github.com/vernesong/OpenClash.git"
+            echo "#   src-git passwall2    https://github.com/Openwrt-Passwall/openwrt-passwall2.git"
+            echo "#   src-git pw_packages  https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git"
+            echo "#   src-git istore       https://github.com/linkease/istore.git   （immortalwrt / libwrt / ppe-immwrt；但 luci-app-store 只在 immortalwrt / libwrt 的 plus 配置里选中）"
+            echo "#   src-git nss          https://github.com/JuliusBairaktaris/nss-packages.git;ppe-nss  （仅 ppe，取 nss-firmware）"
+            echo "#"
+            echo "# 直接 clone 的包（scripts/diy-part2.sh，feeds update 之后）："
+            echo "#   luci-theme-argon         https://github.com/jerrykuku/luci-theme-argon.git        master"
+            echo "#   luci-app-argon-config    https://github.com/jerrykuku/luci-app-argon-config.git   master"
+            echo "#   luci-app-athena-led      https://github.com/NONGFAH/luci-app-athena-led.git       main（失败则试 master）"
+          } > upstream-lock.txt
+          cat upstream-lock.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add upstream-lock.txt
+          if git diff --cached --quiet; then
+            echo "锁定记录无变化，无需提交"
+            exit 0
+          fi
+          git commit -m "chore: 同步上游锁定记录 [skip ci]" -m "定时构建 $LOCK_DATE（UTC+8）各源实际构建用的提交号"
+          git pull --rebase origin "${{ github.ref_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "已提交并推送 upstream-lock.txt"

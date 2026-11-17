@@ -4,14 +4,15 @@
 # 记录该次定时构建实际用的各源提交号（git clone --depth=1 拉到的分支最新提交）。
 # 提交信息带 [skip ci]，且本文件不在 push 触发的 paths 里，不会触发新的构建。
 # 内核版本以各 Release 里附的 Config-*.txt / upstream-lock.txt 为准。
-# 最后同步：2026-11-16 人工核对（git ls-remote），定时构建同步后会被构建实际用的提交号覆盖。
+# 最后同步：26.11.18-03.38（UTC+8），对应定时构建 https://github.com/hhliulei/OpenWrt-JDCloud-v2/actions/runs/44059745684
 #
 # 源码 / 分支 / 构建用提交：
-#   immortalwrt https://github.com/laipeng668/immortalwrt.git openwrt-25.12 b5fd0c8b686f0e2522203c17f6424dc848c59824
+#   immortalwrt https://github.com/laipeng668/immortalwrt.git openwrt-25.12 1176e34a0346ee9bfc4ae8df6634baf8a23afafa
 #   libwrt https://github.com/LiBwrt/openwrt-6.x.git 25.12-nss 6c363ced06ee6dc0c49092a8da087e1dc45f17c9
-#   openwrt https://github.com/openwrt/openwrt.git main e9ba4b935dae70a27960edb86e1cf9ade35bc31a
+#   openwrt https://github.com/openwrt/openwrt.git main 2a425bf0a474ce2a732f079526353eb309fb41cb
+#   注意：openwrt 本次构建中出现多个不同提交（上游在构建期间更新了）：openwrt https://github.com/openwrt/openwrt.git main 41a0aea338da58c6cdc6c4807e59cc52e2a78f50
 #   ppe https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git ppe-nss ec9306fa8ddc7538e340389f959cc64f4dd4266b
-#   ppe-immwrt https://github.com/VIKINGYFY/immortalwrt.git owrt ebd9072b3362a5f8aa5eb54b531304f2a1f16d03
+#   ppe-immwrt https://github.com/VIKINGYFY/immortalwrt.git owrt fdb0dfb367bd50bc8773be63d227695bfeaf55d1
 #
 # 追加的插件 feed（scripts/diy-part1.sh）：
 #   src-git openclash    https://github.com/vernesong/OpenClash.git
@@ -24,7 +25,3 @@
 #   luci-theme-argon         https://github.com/jerrykuku/luci-theme-argon.git        master
 #   luci-app-argon-config    https://github.com/jerrykuku/luci-app-argon-config.git   master
 #   luci-app-athena-led      https://github.com/NONGFAH/luci-app-athena-led.git       main（失败则试 master）
-#
-# 注意：不要把本文件里的提交号当成“版本锁定”。内核与上游提交每次构建都可能变，
-# 以最近一次定时构建同步后的这份文件、以及各 Release 里构建时生成的
-# upstream-lock.txt 为准。

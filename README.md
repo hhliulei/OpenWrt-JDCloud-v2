@@ -220,8 +220,8 @@ OpenWrt / ImmortalWrt / JDCloud RE-CS-02 / JDCloud RE-CS-07 / IPQ6010 / PPE / �
   无害，构建时只算一次。
 - **未编入的**：PassWall v1（未采用，只编 PassWall2）；`luci-app-qca-ppe-qos`
   （需要 PPE 作者的 luci fork，默认 feeds 下 `make defconfig` 会丢掉，配置里明确不写）；
-  `ath11k-firmware-qcn9074-ddwrt`（与默认的 `ath11k-firmware-qcn9074` 文件冲突，
-  见「待实机验证」）。
+  `ath11k-firmware-qcn9074-ddwrt`：只在 ppe-immwrt / 雅典娜上用——该 fork 的机型定义
+  默认拉的就是 ddwrt 版，该路线的雅典娜配置里已把标准版关掉以免文件冲突（见「构建状态」）。
 
 ### PLUS 版使用提示
 
@@ -344,7 +344,14 @@ dmesg | grep -iE 'nss|ath11k|ppe'
      `ath11k-firmware-qcn9074` 与 `ath11k-firmware-qcn9074-ddwrt` 文件冲突，
      两个包都想往同一个位置写固件文件；修法是在 RE-CS-02 的 ppe-immwrt 配置里
      二选一（或看该 fork 默认拉的是哪一个），**这次只记下来，等确认修法再改**。
-- 2026-11-16 10:00 CST 的定时构建（run #2）尚未核对。
+- 2026-11-16 17:53 CST 上传新版 `build.yml` 后触发的 run #3（2026-11-17 04:20 CST 跑完）：
+  **20 个任务里 18 个成功、2 个失败**——克隆缓存修复已验证（ppe / 太乙的两个任务
+  这次都过了克隆、正常出包）；只剩上面第 2 条的两个雅典娜 ppe-immwrt 任务还是
+  exit 2。已确认该 fork 的机型定义（`ipq60xx.mk` 的 `Device/jdcloud_re-cs-02`）
+  默认拉的就是 `ath11k-firmware-qcn9074-ddwrt`，所以修法是 ppe-immwrt 的雅典娜
+  配置里去掉标准版、只留 ddwrt 版；修复已在本地仓库（`scripts/gen-configs.py` +
+  两个配置），待上传到 GitHub 后重编验证。
+- 2026-11-16 10:00 CST 的定时构建（run #2，旧版 workflow）未再单独核对，已被 run #3 的新版 workflow 结果取代。
 
 ### 版本与验证建议
 
@@ -426,8 +433,8 @@ python3 scripts/gen-configs.py
 ## 🔍 待实机验证
 
 - **PPE 在 IPQ60xx 上未经实测**：两条 PPE 路线的作者实测机都是小米 AX3600（IPQ807x），README 明说 IPQ60xx 未经测试；8 个 PPE 固件编出来后，必须先实测（有线速率、WiFi、PPE 是否生效）再决定是否日常使用。
-- **ath11k 固件包冲突（ppe-immwrt / 雅典娜，待修）**：run #1 里 ppe-immwrt 的两个雅典娜固件在编译时失败，`ath11k-firmware-qcn9074` 与 `ath11k-firmware-qcn9074-ddwrt` 文件冲突。配置里只写了前者（`CONFIG_PACKAGE_ath11k-firmware-qcn9074=y`），后者是该 fork 构建时另外拉进来的；修法是在 RE-CS-02 的 ppe-immwrt 配置里二选一，**等确认修法再改，本次不改配置**。
-- **克隆缓存问题（已修，待上传验证）**：run #1 里 ppe 的两个太乙固件在克隆源码时失败，原因是下载缓存先恢复出 `openwrt/dl` 目录；修复已在本地 `build.yml` 里（克隆前移走 `dl`、克隆完放回），等上传到 GitHub 后重编验证。
+- **ath11k 固件包冲突（ppe-immwrt / 雅典娜，已修，待上传验证）**：run #1、run #3 里 ppe-immwrt 的两个雅典娜固件都在编译时失败（exit 2），`ath11k-firmware-qcn9074` 与 `ath11k-firmware-qcn9074-ddwrt` 文件冲突。已确认是该 fork 的机型定义默认拉 ddwrt 版、配置里又写了标准版；修法是 ppe-immwrt 的雅典娜配置里去掉标准版、只留 ddwrt 版（`scripts/gen-configs.py` 已改、两个配置已重新生成），待上传到 GitHub 后重编验证。
+- **克隆缓存问题（已修，run #3 已验证）**：run #1 里 ppe 的两个太乙固件在克隆源码时失败，原因是下载缓存先恢复出 `openwrt/dl` 目录；修复（克隆前移走 `dl`、克隆完放回）已随 `build.yml`（commit 9880589）上传，run #3 里 ppe / 太乙的两个任务都已越过克隆、正常出包。
 - **NSS 是否生效**：LiBwrt 的 `kmod-qca-nss-drv` / `kmod-qca-nss-ecm` 包名若被上游改名，`make defconfig` 会静默丢掉，NSS 可能不生效；请以 Release 里附的 `Config-*.txt` 为准核对，并用 `dmesg | grep -i nss` 实测。
 - **ImmortalWrt 测试内核**：`CONFIG_TESTING_KERNEL`（当前 6.18）会随上游更新变化；想要最稳的 6.12 可删掉该行。
 - **athena-led**：diy-part2.sh 先按 `main` 拉、失败再按 `master` 拉；若上游改了默认分支名，构建会在这一步报错。

@@ -181,7 +181,17 @@ def base_config(source: str, device: str) -> list[str]:
         lines += [
             "# 雅典娜三频 WiFi",
             "CONFIG_PACKAGE_kmod-ath11k-pci=y",
-            "CONFIG_PACKAGE_ath11k-firmware-qcn9074=y",
+        ]
+        if source == "ppe-immwrt":
+            # 该 fork 的机型定义（VIKINGYFY/immortalwrt owrt 分支
+            # target/linux/qualcommax/image/ipq60xx.mk，Device/jdcloud_re-cs-02）
+            # 自带 ath11k-firmware-qcn9074-ddwrt；再写标准版两个包会往同一位置
+            # 写固件文件、镜像打包时冲突（run #1、run #3 的两个雅典娜任务都死
+            # 在这一步，exit 2），所以这里明确不写标准版，只留 fork 默认的 ddwrt 版。
+            lines += ["# CONFIG_PACKAGE_ath11k-firmware-qcn9074 is not set"]
+        else:
+            lines += ["CONFIG_PACKAGE_ath11k-firmware-qcn9074=y"]
+        lines += [
             "CONFIG_PACKAGE_ipq-wifi-jdcloud_re-cs-02=y",
             "CONFIG_PACKAGE_hostapd-common=y",
             "# 雅典娜顶部点阵屏（与 v1 相同：构建时需由 diy-part2 同类步骤从 NONGFAH 拉取）",

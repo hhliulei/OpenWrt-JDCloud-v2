@@ -4,15 +4,14 @@
 # 记录该次定时构建实际用的各源提交号（git clone --depth=1 拉到的分支最新提交）。
 # 提交信息带 [skip ci]，且本文件不在 push 触发的 paths 里，不会触发新的构建。
 # 内核版本以各 Release 里附的 Config-*.txt / upstream-lock.txt 为准。
-# 最后同步：26.11.21-03.49（UTC+8），对应定时构建 https://github.com/hhliulei/OpenWrt-JDCloud-v2/actions/runs/44710439195
+# 最后同步：26.11.22-04.27（UTC+8），对应定时构建 https://github.com/hhliulei/OpenWrt-JDCloud-v2/actions/runs/44887294724
 #
 # 源码 / 分支 / 构建用提交：
-#   immortalwrt https://github.com/laipeng668/immortalwrt.git openwrt-25.12 1176e34a0346ee9bfc4ae8df6634baf8a23afafa
-#   libwrt https://github.com/LiBwrt/openwrt-6.x.git 25.12-nss 6c363ced06ee6dc0c49092a8da087e1dc45f17c9
-#   openwrt https://github.com/openwrt/openwrt.git main 0e2c2badbe7f162ce9a40cc8229becf89a3292dd
-#   ppe https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git ppe-nss ec9306fa8ddc7538e340389f959cc64f4dd4266b
-#   ppe-immwrt https://github.com/VIKINGYFY/immortalwrt.git owrt 48ec92ebb29370aaa677069a46d7e2bf9ead8b40
-#   注意：ppe-immwrt 本次构建中出现多个不同提交（上游在构建期间更新了）：ppe-immwrt https://github.com/VIKINGYFY/immortalwrt.git owrt b256ba9a43745970057e3efe9b6f606f34161bbc
+#   immortalwrt https://github.com/laipeng668/immortalwrt.git openwrt-25.12 c69f35a21b29fe3502558b0fcda04bbfd2757849
+#   libwrt https://github.com/LiBwrt/openwrt-6.x.git 25.12-nss 000a4e74b17edfdc296f9eaa674344fc0adaaf95
+#   openwrt https://github.com/openwrt/openwrt.git main dee2ff6a77b1fd0eea6825aabaf97cc35ba642e2
+#   ppe https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git ppe-nss c6cabfa678b4a543d143744f053a4ab081b9926e
+#   ppe-immwrt https://github.com/VIKINGYFY/immortalwrt.git owrt b650d6e3803c7b52d9cfedaece356fb8ccdf75ac
 #
 # 追加的插件 feed（scripts/diy-part1.sh）：
 #   src-git openclash    https://github.com/vernesong/OpenClash.git
